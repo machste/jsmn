@@ -25,7 +25,7 @@ static inline void *realloc_it(void *ptrmem, size_t size) {
  * The output looks like YAML, but I'm not sure if it's really compatible.
  */
 
-static int dump(const char *js, jsmntok_t *t, size_t count, int indent) {
+static int dump(const char *js, jsmn_Token *t, size_t count, int indent) {
 	int i, j, k;
 	if (count == 0) {
 		return 0;
@@ -33,7 +33,7 @@ static int dump(const char *js, jsmntok_t *t, size_t count, int indent) {
 	if (t->type == JSMN_PRIMITIVE) {
 		printf("%.*s", t->end - t->start, js+t->start);
 		return 1;
-	} else if (t->type == JSMN_STRING) {
+	} else if (t->type == JSMN_LABEL || t->type == JSMN_STRING) {
 		printf("'%.*s'", t->end - t->start, js+t->start);
 		return 1;
 	} else if (t->type == JSMN_OBJECT) {
@@ -68,12 +68,9 @@ int main() {
 	size_t jslen = 0;
 	char buf[BUFSIZ];
 
-	jsmn_parser p;
-	jsmntok_t *tok;
+	jsmn_Parser p;
+	jsmn_Token *tok;
 	size_t tokcount = 2;
-
-	/* Prepare parser */
-	jsmn_init(&p);
 
 	/* Allocate some tokens as a start */
 	tok = malloc(sizeof(*tok) * tokcount);
@@ -81,6 +78,9 @@ int main() {
 		fprintf(stderr, "malloc(): errno=%d\n", errno);
 		return 3;
 	}
+
+	/* Prepare parser */
+	jsmn_parser_init(&p, tok, tokcount);
 
 	for (;;) {
 		/* Read another chunk */
@@ -106,7 +106,7 @@ int main() {
 		jslen = jslen + r;
 
 again:
-		r = jsmn_parse(&p, js, jslen, tok, tokcount);
+		r = jsmn_parse(&p, js, jslen);
 		if (r < 0) {
 			if (r == JSMN_ERROR_NOMEM) {
 				tokcount = tokcount * 2;
@@ -114,10 +114,13 @@ again:
 				if (tok == NULL) {
 					return 3;
 				}
+				/* Update parser */
+				p.factory.toks = tok;
+				p.factory.tokslen = tokcount;
 				goto again;
 			}
 		} else {
-			dump(js, tok, p.toknext, 0);
+			dump(js, tok, p.factory.toknext, 0);
 			eof_expected = 1;
 		}
 	}
