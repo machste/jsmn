@@ -12,9 +12,8 @@ static const char *JSON_STRING =
 	"{\"user\": \"johndoe\", \"admin\": false, \"uid\": 1000,\n  "
 	"\"groups\": [\"users\", \"wheel\", \"audio\", \"video\"]}";
 
-static int jsoneq(const char *json, jsmn_Token *tok, const char *s) {
-	if (tok->type == JSMN_LABEL && (int) strlen(s) == tok->end - tok->start &&
-			strncmp(json + tok->start, s, tok->end - tok->start) == 0) {
+static int jsoneq(jsmn_Token *tok, const char *s) {
+	if (tok->type == JSMN_LABEL && strncmp(tok->data, s, tok->length) == 0) {
 		return 0;
 	}
 	return -1;
@@ -41,22 +40,19 @@ int main() {
 
 	/* Loop over all keys of the root object */
 	for (i = 1; i < r; i++) {
-		if (jsoneq(JSON_STRING, &t[i], "user") == 0) {
+		if (jsoneq(&t[i], "user") == 0) {
 			/* We may use strndup() to fetch string value */
-			printf("- User: %.*s\n", t[i+1].end-t[i+1].start,
-					JSON_STRING + t[i+1].start);
+			printf("- User: %.*s\n", t[i+1].length, t[i+1].data);
 			i++;
-		} else if (jsoneq(JSON_STRING, &t[i], "admin") == 0) {
+		} else if (jsoneq(&t[i], "admin") == 0) {
 			/* We may additionally check if the value is either "true" or "false" */
-			printf("- Admin: %.*s\n", t[i+1].end-t[i+1].start,
-					JSON_STRING + t[i+1].start);
+			printf("- Admin: %.*s\n", t[i+1].length, t[i+1].data);
 			i++;
-		} else if (jsoneq(JSON_STRING, &t[i], "uid") == 0) {
+		} else if (jsoneq(&t[i], "uid") == 0) {
 			/* We may want to do strtol() here to get numeric value */
-			printf("- UID: %.*s\n", t[i+1].end-t[i+1].start,
-					JSON_STRING + t[i+1].start);
+			printf("- UID: %.*s\n", t[i+1].length, t[i+1].data);
 			i++;
-		} else if (jsoneq(JSON_STRING, &t[i], "groups") == 0) {
+		} else if (jsoneq(&t[i], "groups") == 0) {
 			int j;
 			printf("- Groups:\n");
 			if (t[i+1].type != JSMN_ARRAY) {
@@ -64,12 +60,11 @@ int main() {
 			}
 			for (j = 0; j < t[i+1].size; j++) {
 				jsmn_Token *g = &t[i+j+2];
-				printf("  * %.*s\n", g->end - g->start, JSON_STRING + g->start);
+				printf("  * %.*s\n", g->length, g->data);
 			}
 			i += t[i+1].size + 1;
 		} else {
-			printf("Unexpected key: %.*s\n", t[i].end-t[i].start,
-					JSON_STRING + t[i].start);
+			printf("Unexpected key: %.*s\n", t[i+1].length, t[i+1].data);
 		}
 	}
 	return EXIT_SUCCESS;

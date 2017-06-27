@@ -6,16 +6,16 @@
  * Allocates a fresh unused token from the token pull.
  */
 static jsmn_Token *jsmn_alloc_token(jsmn_Factory *factory, size_t len) {
+    int i;
     jsmn_Token *tok;
     if (factory->toknext + (len - 1) >= factory->tokslen) {
         return NULL;
     }
-    for (int i = 0; i < len; i++) {
+    for (i = 0; i < len; i++) {
         tok = factory->toks + factory->toknext++;
         tok->type = JSMN_UNDEFINED;
         tok->data = NULL;
         tok->length = -1;
-        tok->start = tok->end = -1;
         tok->size = 0;
         tok->parent = -1;
     }
@@ -25,11 +25,11 @@ static jsmn_Token *jsmn_alloc_token(jsmn_Factory *factory, size_t len) {
 /**
  * Fills token type and boundaries.
  */
-static void jsmn_fill_token(jsmn_Token *token, jsmntype_t type,
+static void jsmn_fill_token(jsmn_Token *token, jsmntype_t type, const char *js,
                             int start, int end) {
     token->type = type;
-    token->start = start;
-    token->end = end;
+    token->data = js + start;
+    token->length = end - start;
     token->size = 0;
 }
 
@@ -196,9 +196,10 @@ int jsmn_dump(jsmn_Token *t, jsmn_write_handle_t cb) {
         cb("\":", t->type == JSMN_LABEL ? 2 : 1);
         return 1;
     } else if (t->type == JSMN_OBJECT) {
+        int i;
         int j = 0;
         cb("{", 1);
-        for (int i = 0; i < t->size; i++) {
+        for (i = 0; i < t->size; i++) {
             j += jsmn_dump(t + 1 + j, cb);
             j += jsmn_dump(t + 1 + j, cb);
             if (i < t->size - 1) {
@@ -208,9 +209,10 @@ int jsmn_dump(jsmn_Token *t, jsmn_write_handle_t cb) {
         cb("}", 1);
         return j + 1;
     } else if (t->type == JSMN_ARRAY) {
+        int i;
         int j = 0;
         cb("[", 1);
-        for (int i = 0; i < t->size; i++) {
+        for (i = 0; i < t->size; i++) {
             j += jsmn_dump(t + 1 + j, cb);
             if (i < t->size - 1) {
                 cb(",", 1);
@@ -224,6 +226,7 @@ int jsmn_dump(jsmn_Token *t, jsmn_write_handle_t cb) {
 
 void jsmn_parser_init(jsmn_Parser *parser, jsmn_Token *toks, size_t len) {
     jsmn_factory_init((jsmn_Factory *)parser, toks, len);
+    parser->js = NULL;
     parser->pos = 0;
 }
 
@@ -262,7 +265,7 @@ found:
         parser->pos = start;
         return JSMN_ERROR_NOMEM;
     }
-    jsmn_fill_token(token, JSMN_PRIMITIVE, start, parser->pos);
+    jsmn_fill_token(token, JSMN_PRIMITIVE, js, start, parser->pos);
     token->parent = factory->toksuper;
     parser->pos--;
     return 0;
@@ -298,7 +301,7 @@ static int jsmn_parse_string(jsmn_Parser *parser, const char *js, size_t len) {
             if (factory->toks[factory->toksuper].type == JSMN_OBJECT) {
                 type = JSMN_LABEL;
             }
-            jsmn_fill_token(token, type, start+1, parser->pos);
+            jsmn_fill_token(token, type, js, start+1, parser->pos);
             token->parent = factory->toksuper;
             return 0;
         }
@@ -346,6 +349,19 @@ int jsmn_parse(jsmn_Parser *parser, const char *js, size_t len) {
     int r;
     int i;
 
+    if (parser->js == NULL) {
+        parser->js = js;
+    } else if (parser->js != js) {
+        // JSON string has been realocated, re-calculate old data pointers
+        int offset = js - parser->js;
+        for (i = 0; i < count; i++) {
+            if (tokens[i].data != NULL) {
+                tokens[i].data += offset;
+            }
+        }
+        parser->js = js;
+    }
+    // Parse JSON string
     for (; parser->pos < len && js[parser->pos] != '\0'; parser->pos++) {
         char c;
         jsmntype_t type;
@@ -365,7 +381,7 @@ int jsmn_parse(jsmn_Parser *parser, const char *js, size_t len) {
                     token->parent = factory->toksuper;
                 }
                 token->type = (c == '{' ? JSMN_OBJECT : JSMN_ARRAY);
-                token->start = parser->pos;
+                token->data = js + parser->pos;
                 factory->toksuper = factory->toknext - 1;
                 break;
             case '}': case ']':
@@ -377,11 +393,11 @@ int jsmn_parse(jsmn_Parser *parser, const char *js, size_t len) {
                 }
                 token = &tokens[factory->toknext - 1];
                 for (;;) {
-                    if (token->start != -1 && token->end == -1) {
+                    if (token->data != NULL && token->length == -1) {
                         if (token->type != type) {
                             return JSMN_ERROR_INVAL;
                         }
-                        token->end = parser->pos + 1;
+                        token->length = parser->pos - (token->data - js) + 1;
                         factory->toksuper = token->parent;
                         break;
                     }
@@ -441,19 +457,8 @@ int jsmn_parse(jsmn_Parser *parser, const char *js, size_t len) {
     if (tokens != NULL) {
         for (i = factory->toknext - 1; i >= 0; i--) {
             // Unmatched opened object or array
-            if (tokens[i].start != -1 && tokens[i].end == -1) {
+            if (tokens[i].data != NULL && tokens[i].length == -1) {
                 return JSMN_ERROR_PART;
-            }
-        }
-        for (i = 0; i < count; i++) {
-            switch (tokens[i].type) {
-                case JSMN_LABEL: case JSMN_STRING: case JSMN_PRIMITIVE:
-                    // Calculate data pointer and length
-                    tokens[i].data = js + tokens[i].start;
-                    tokens[i].length = tokens[i].end - tokens[i].start;
-                    break;
-                default:
-                    break;
             }
         }
     }

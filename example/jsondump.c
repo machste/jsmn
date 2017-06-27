@@ -31,10 +31,10 @@ static int dump(const char *js, jsmn_Token *t, size_t count, int indent) {
 		return 0;
 	}
 	if (t->type == JSMN_PRIMITIVE) {
-		printf("%.*s", t->end - t->start, js+t->start);
+		printf("%.*s", t->length, t->data);
 		return 1;
 	} else if (t->type == JSMN_LABEL || t->type == JSMN_STRING) {
-		printf("'%.*s'", t->end - t->start, js+t->start);
+		printf("'%.*s'",t->length, t->data);
 		return 1;
 	} else if (t->type == JSMN_OBJECT) {
 		printf("\n");

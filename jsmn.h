@@ -89,10 +89,6 @@ typedef struct {
     jsmntype_t type;
     const char *data;
     int length;
-    /** Start position in JSON data string */
-    int start;
-    /** End position in JSON data string */
-    int end;
     int size;
     int parent;
 } jsmn_Token;
@@ -119,6 +115,7 @@ typedef struct {
  */
 typedef struct {
     jsmn_Factory factory;
+    const char *js; // JSON string to be parsed
     unsigned int pos; // offset in the JSON string
 } jsmn_Parser;
 
